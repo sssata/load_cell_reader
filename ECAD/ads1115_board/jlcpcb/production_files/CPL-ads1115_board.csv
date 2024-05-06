@@ -1,0 +1,23 @@
+Designator,Val,Package,Mid X,Mid Y,Rotation,Layer
+C1,0.1uF,C_0402_1005Metric,139.0,-97.0,0.0,top
+C2,10nF,C_0402_1005Metric,144.5,-107.0,0.0,top
+C3,15pF,C_0402_1005Metric,146.0,-103.5,180.0,top
+C4,10uF,C_0603_1608Metric,145.0,-102.0,0.0,top
+C5,1uF,C_0402_1005Metric,152.0,-100.0,90.0,top
+C6,0.1uF,C_0402_1005Metric,151.0,-98.0,90.0,top
+C7,0.1uF,C_0402_1005Metric,151.0,-102.0,90.0,top
+C8,1uF,C_0402_1005Metric,139.0,-103.5,180.0,top
+H1,MountingHole,SMD Tooling Hole,136.0,-108.0,0.0,top
+H2,MountingHole,SMD Tooling Hole,158.0,-92.0,0.0,top
+H3,MountingHole,SMD Tooling Hole,158.0,-108.0,0.0,top
+J1,LOAD CELL,JST_PH_B4B-PH-K_1x04_P2.00mm_Vertical,156.45,-100.0,90.0,top
+J2,MCU,JST_PH_B6B-PH-K_1x06_P2.00mm_Vertical,133.55,-100.0,-90.0,top
+R1,68K,R_0402_1005Metric,146.0,-104.5,180.0,top
+R2,30K,R_0402_1005Metric,146.0,-105.5,180.0,top
+R3,68R,R_0402_1005Metric,152.5,-101.5,0.0,top
+R4,68R,R_0402_1005Metric,152.5,-98.5,180.0,top
+R5,5.1K,R_0402_1005Metric,140.0,-99.5,180.0,top
+R6,5.1K,R_0402_1005Metric,139.0,-98.0,0.0,top
+R7,5.1K,R_0402_1005Metric,144.5,-99.5,180.0,top
+U1,ADS1115IDGS,TSSOP-10_3x3mm_P0.5mm,143.5,-97.0,180.0,top
+U2,TPS79301-EP,SOT-23-6,142.5,-104.5,0.0,top
