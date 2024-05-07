@@ -42,7 +42,7 @@ public:
 
         // Set gain
         m_ads1115.setGain(16);
-        m_ads1115.setDataRate(0);
+        m_ads1115.setDataRate(7);
 
         // Set the MSB of the Hi_thresh register to 1
         m_ads1115.setComparatorThresholdHigh(0x8000);
@@ -67,7 +67,7 @@ public:
 
     ErrorCode getLastRawCounts(uint32_t &counts)
     {
-        counts = m_lastCounts;
+        counts = m_lastAdcCounts;
         return ErrorCode::OK;
     }
 
@@ -95,7 +95,7 @@ private:
         gpio_put(Pins::ONBOARD_LED, true);
         LoadcellADS1115 *this_p = static_cast<LoadcellADS1115 *>(loadcell);
         this_p->m_isAdcReady = true;
-        this_p->m_lastCounts = this_p->m_ads1115.getValue();
+        this_p->m_lastAdcCounts = this_p->m_ads1115.getValue();
         this_p->m_noOfReads++;
         gpio_put(Pins::ONBOARD_LED, false);
         this_p->m_lastInterruptDuration_us = time_us_64() - start_time_us;
@@ -103,7 +103,7 @@ private:
     }
 
     const uint32_t m_readyPin;
-    uint32_t m_lastCounts = 0;
+    int32_t m_lastAdcCounts = 0;
     uint64_t m_noOfReads = 0;
     uint64_t m_lastInterruptDuration_us = 0;
 

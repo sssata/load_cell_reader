@@ -7,7 +7,7 @@
 
 uint64_t last_time_us;
 
-constexpr uint64_t loop_period_us = 1000 * 1000;
+constexpr uint64_t loop_period_us = 10 * 1000;
 
 LoadcellADS1115 loadCell = LoadcellADS1115(&Wire, Pins::ADS1115_RDY);
 bool led_on = false;
@@ -61,6 +61,7 @@ void setup()
   // Set up LED
   gpio_init(Pins::ONBOARD_LED);
   gpio_set_dir(Pins::ONBOARD_LED, GPIO_OUT);
+  
 
   // Set up USB Device
   Serial.begin(115200);
@@ -69,7 +70,8 @@ void setup()
   // Set up pins
   Wire.setSDA(Pins::ADS1115_SDA);
   Wire.setSCL(Pins::ADS1115_SCL);
-  Wire.setClock(400'000);
+  Wire.setClock(1'000'000);
+  Wire.begin();
 
   // Start ADS1115
   loadCell.begin();
@@ -84,14 +86,13 @@ void loop()
     return;
   }
   last_time_us = curr_time_us;
-  // uint32_t rawCounts;
-  // loadCell.getLastRawCounts(rawCounts);
+  uint32_t rawCounts;
+  loadCell.getLastRawCounts(rawCounts);
   // Serial.printf("%.5f,", curr_time_us / 1000'000.0);
   // Serial.printf("%lu,", loadCell.getNumOfCounts());
-  // Serial.printf("%llu,", loadCell.getLastInterruptDuration_us());
-  // Serial.printf("%d,", loadCell.m_ads1115.getValue());
-  // Serial.printf("%lu\n", rawCounts);
-  scan_i2c();
+  Serial.printf("%llu\t", loadCell.getLastInterruptDuration_us());
+  Serial.printf("%ld\n", rawCounts);
+  // scan_i2c();
   Serial.flush();
 
   // digitalWrite(Pins::ONBOARD_LED, led_on);
