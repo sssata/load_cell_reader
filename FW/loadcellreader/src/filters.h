@@ -1,80 +1,74 @@
 #pragma once
 #include <vector>
+#include <array>
+#include <deque>
 #include <cstdlib>
+#include <algorithm>
 
 class Filter {
 public:
-    virtual double filter(double newData) = 0;
-};
-
-class EMAFilter : public Filter {
-private:
-    double alpha;
-    double lastEMA;
-
-public:
-    EMAFilter(double initialEMA, double alpha) : lastEMA(initialEMA), alpha(alpha) {}
-
-    double filter(double newData) override {
-        lastEMA = alpha * newData + (1 - alpha) * lastEMA;
-        return lastEMA;
-    }
-};
-
-class MAFilter : public Filter {
-private:
-    size_t windowSize;
-    std::vector<double> window;
-    double sum;
-
-public:
-    MAFilter(size_t windowSize) : windowSize(windowSize), sum(0) {
-        window.reserve(windowSize);
-    }
-
-    double filter(double newData) override {
-        if (window.size() == windowSize) {
-            sum -= window[0];
-            window.erase(window.begin());
-        }
-        window.push_back(newData);
-        sum += newData;
-        return sum / window.size();
-    }
-};
-
-class FIRFilter : public Filter {
-private:
-    std::vector<double> coefficients;
-    std::vector<double> buffer;
-
-public:
-    FIRFilter(const std::vector<double>& coefficients) : coefficients(coefficients) {
-        buffer.resize(coefficients.size(), 0);
-    }
-
-    double filter(double newData) override {
-        buffer.erase(buffer.begin());
-        buffer.push_back(newData);
-
-        double result = 0.0;
-        for (size_t i = 0; i < coefficients.size(); ++i) {
-            result += coefficients[i] * buffer[i];
-        }
-        return result;
-    }
+    virtual void reset() = 0;
+    virtual double step(double newData) = 0;
+protected:
+    bool shouldReset = false;
 };
 
 class IIRFilter : public Filter {
-private:
-    double alpha;
-    double lastOutput;
+protected:
+    std::vector<double> b; // Numerator coefficients
+    std::vector<double> a; // Denominator coefficients
+    std::vector<double> inputs; // Input buffer
+    std::vector<double> outputs; // Output buffer
+
+    void fill_arrays(double value){
+        inputs.resize(b.size(), 0);
+        outputs.resize(a.size() - 1, 0);
+        std::fill(inputs.begin(), inputs.end(), value);
+        std::fill(outputs.begin(), outputs.end(), value);
+    }
 
 public:
-    IIRFilter(double initialOutput, double alpha) : lastOutput(initialOutput), alpha(alpha) {}
+    IIRFilter(const std::vector<double>& b_coeffs, const std::vector<double>& a_coeffs) : b(b_coeffs), a(a_coeffs) {
+        // Initialize input and output buffers
 
-    double filter(double newData) override {
-        lastOutput = alpha * newData + (1 - alpha) * lastOutput;
-        return lastOutput;
+        reset();
+    }
+    
+    void reset() override {
+        shouldReset = true;
+    }
+
+    double step(double newData) override {
+        if (shouldReset) {
+            fill_arrays(newData);
+            shouldReset = false;
+        }
+
+        // Shift input buffer to the right and add new input to index zero
+        std::rotate(inputs.rbegin(), inputs.rbegin() + 1, inputs.rend());
+        inputs[0] = newData;
+
+        // Accumulate b term
+        double bcc = 0.0;
+        for (size_t i = 0; i < b.size(); ++i) {
+            bcc += b[i] * inputs[i];
+        }
+        
+        // Accumulate a term
+        double acc = 0.0;
+        for (size_t i = 1; i < a.size(); ++i) {
+            acc += a[i] * outputs[i - 1];
+        }
+
+        // Shift output buffer
+        std::rotate(outputs.rbegin(), outputs.rbegin() + 1, outputs.rend());
+        outputs[0] = bcc - acc;
+
+        return outputs[0];
     }
 };
+
+// class FIRFilter : public IIRFilter {
+// public:
+//     FIRFilter(const std::vector<double>& b_coeffs) : IIRFilter(b_coeffs, {1.0}) {}
+// };

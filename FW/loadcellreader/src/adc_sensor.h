@@ -6,16 +6,10 @@
 #include "ADS1X15.h"
 #include "Wire.h"
 #include "pins.h"
+#include "filters.h"
 
 
 constexpr int ADS1115_I2C_ADDR = 1;
-
-// class ADCLoadCell {
-//     ADCLoadCell (){
-//     }
-
-//     virtual read();
-// }
 
 enum class ErrorCode
 {
@@ -26,7 +20,7 @@ enum class ErrorCode
 class LoadcellADS1115
 {
 public:
-    LoadcellADS1115(TwoWire *wire, uint32_t ready_pin) : m_readyPin(ready_pin)
+    LoadcellADS1115(TwoWire *wire, uint32_t ready_pin, Filter& filter) : m_readyPin(ready_pin), filter(filter)
     {
         m_ads1115 = ADS1115(0x48, wire);
     }
@@ -67,8 +61,13 @@ public:
 
     ErrorCode getLastRawCounts(uint32_t &counts)
     {
-        counts = m_lastAdcCounts;
+        counts = m_lastRawCounts;
         return ErrorCode::OK;
+    }
+
+    double getLastFilteredCounts()
+    {
+        return m_lastFilteredCounts;
     }
 
     uint64_t getNumOfCounts()
@@ -95,17 +94,23 @@ private:
         gpio_put(Pins::ONBOARD_LED, true);
         LoadcellADS1115 *this_p = static_cast<LoadcellADS1115 *>(loadcell);
         this_p->m_isAdcReady = true;
-        this_p->m_lastAdcCounts = this_p->m_ads1115.getValue();
+        this_p->m_lastRawCounts = this_p->m_ads1115.getValue();
         this_p->m_noOfReads++;
         gpio_put(Pins::ONBOARD_LED, false);
+        // Serial.printf("%llu\t", start_time_us);
+        // Serial.printf("%llu\t", this_p->m_lastInterruptDuration_us);
+        // Serial.printf("%ld\n", this_p->m_lastRawCounts);
+        this_p->m_lastFilteredCounts = this_p->filter.step(this_p->m_lastRawCounts);
         this_p->m_lastInterruptDuration_us = time_us_64() - start_time_us;
         return;
     }
 
     const uint32_t m_readyPin;
-    int32_t m_lastAdcCounts = 0;
+    int32_t m_lastRawCounts = 0;
+    double m_lastFilteredCounts = 0;
     uint64_t m_noOfReads = 0;
     uint64_t m_lastInterruptDuration_us = 0;
+    Filter& filter;
 
     bool m_isAdcReady;
 };

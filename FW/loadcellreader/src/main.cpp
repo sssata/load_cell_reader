@@ -9,7 +9,12 @@ uint64_t last_time_us;
 
 constexpr uint64_t loop_period_us = 10 * 1000;
 
-LoadcellADS1115 loadCell = LoadcellADS1115(&Wire, Pins::ADS1115_RDY);
+// Bessel 2nd order 50 hz cutoffs
+std::vector<double> b_coeffs = {0.05044522, 0.10089044, 0.05044522}; // Numerator coefficients
+std::vector<double> a_coeffs = {1, -1.17643871, 0.37821959}; // Denominator coefficients
+IIRFilter iirFilter(b_coeffs, a_coeffs);
+
+LoadcellADS1115 loadCell = LoadcellADS1115(&Wire, Pins::ADS1115_RDY, iirFilter);
 bool led_on = false;
 
 void scan_i2c()
@@ -88,11 +93,11 @@ void loop()
   last_time_us = curr_time_us;
   uint32_t rawCounts;
   loadCell.getLastRawCounts(rawCounts);
-  // Serial.printf("%.5f,", curr_time_us / 1000'000.0);
-  // Serial.printf("%lu,", loadCell.getNumOfCounts());
+  Serial.printf("%.5f\t", curr_time_us / 1000'000.0);
+  Serial.printf("%lu\t", loadCell.getNumOfCounts());
   Serial.printf("%llu\t", loadCell.getLastInterruptDuration_us());
-  Serial.printf("%ld\n", rawCounts);
-  // scan_i2c();
+  Serial.printf("%ld\t", rawCounts);
+  Serial.printf("%f\n", loadCell.getLastFilteredCounts());
   Serial.flush();
 
   // digitalWrite(Pins::ONBOARD_LED, led_on);
