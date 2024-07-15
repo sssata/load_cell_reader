@@ -9,12 +9,21 @@ uint64_t last_time_us;
 
 constexpr uint64_t loop_period_us = 10 * 1000;
 
-// Bessel 2nd order 50 hz cutoffs
+// Bessel 2nd order 50 hz cutoffs, 800hz sampling rate
 std::vector<double> b_coeffs = {0.05044522, 0.10089044, 0.05044522}; // Numerator coefficients
 std::vector<double> a_coeffs = {1, -1.17643871, 0.37821959}; // Denominator coefficients
 IIRFilter iirFilter(b_coeffs, a_coeffs);
 
-LoadcellADS1115 loadCell = LoadcellADS1115(&Wire, Pins::ADS1115_RDY, iirFilter);
+// LoadcellADS1115 loadCell = LoadcellADS1115(&Wire, Pins::ADS1115_RDY, iirFilter);
+
+LoadCellADS1220::PinSetup pinSetup = {
+  .MOSI = Pins::ADS1220_MOSI,
+  .MISO = Pins::ADS1220_MISO,
+  .SCK = Pins::ADS1220_SCK,
+  .CS = Pins::ADS1220_CS,
+  .DRDY = Pins::ADS1220_DRDY,
+};
+LoadCellADS1220 loadCell = LoadCellADS1220(pinSetup, iirFilter);
 bool led_on = false;
 
 void scan_i2c()
@@ -73,14 +82,18 @@ void setup()
   usb_service_setup(0x1234, 0x1234);
 
   // Set up pins
-  Wire.setSDA(Pins::ADS1115_SDA);
-  Wire.setSCL(Pins::ADS1115_SCL);
-  Wire.setClock(1'000'000);
-  Wire.begin();
+  // Wire.setSDA(Pins::ADS1115_SDA);
+  // Wire.setSCL(Pins::ADS1115_SCL);
+  // Wire.setClock(1'000'000);
+  // Wire.begin();
 
   // Start ADS1115
   loadCell.begin();
   last_time_us = time_us_64();
+
+
+  // Start ADS1220
+
 }
 
 void loop()

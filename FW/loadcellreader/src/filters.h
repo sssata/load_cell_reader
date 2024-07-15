@@ -67,8 +67,3 @@ public:
         return outputs[0];
     }
 };
-
-// class FIRFilter : public IIRFilter {
-// public:
-//     FIRFilter(const std::vector<double>& b_coeffs) : IIRFilter(b_coeffs, {1.0}) {}
-// };
