@@ -9,6 +9,9 @@ constexpr int ADS1115_RDY = 3;
 constexpr int ADS1115_SDA = 4;
 constexpr int ADS1115_SCL = 5;
 
+constexpr int ADS1220_DRDY2 = 8;
+constexpr int ADS1220_CS2 = 9;
+
 constexpr int ADS1220_DRDY = 6;
 constexpr int ADS1220_CS = 7;
 constexpr int ADS1220_MISO = 4;

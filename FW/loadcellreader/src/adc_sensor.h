@@ -6,14 +6,18 @@
 #include "ADS1X15.h"
 #include "ADS1220_driver.h"
 
+#include "pico/stdlib.h"
+#include "hardware/dma.h"
+#include "hardware/irq.h"
+#include "hardware/spi.h"
+#include "pico/util/queue.h"
+
 // Arduino
 #include "Wire.h"
 #include <SPI.h>
 
 #include "pins.h"
 #include "filters.h"
-
-
 
 constexpr int ADS1115_I2C_ADDR = 1;
 
@@ -67,10 +71,18 @@ public:
 
 using namespace ADS1220Driver;
 
-class LoadCellADS1220 : public AnalogSensor
+class ADS1220Pipeline : public AnalogSensor
 {
 
 public:
+
+    enum class State
+    {
+        INITIALIZING = 0,
+        WAITING_FOR_DRDY,
+        READING_SPI,
+        APPLYING_FILTER,
+    };
 
     struct PinSetup{
         uint8_t MOSI;
@@ -80,7 +92,28 @@ public:
         uint8_t DRDY;
     };
 
-    LoadCellADS1220(PinSetup pinSetup, Filter& filter) : m_pins(pinSetup), filter(filter)
+    struct SensorReading {
+        float reading;
+        int32_t rawReading;
+        uint64_t timestamp;
+        uint64_t reading_number;
+        uint32_t interruptDuration_us;
+    };
+
+    /**
+     * @brief Construct a new ADS1220 pipeline object
+     * 
+     * @param pinSetup
+     * @param filter the filter to apply to the sensor readings
+     * @param output_queue the output queue to store the sensor readings
+     */
+    ADS1220Pipeline(uint8_t ID, PinSetup pinSetup, Filter& filter, queue_t* output_queue) 
+        : m_ID{ID}
+        , m_pins{pinSetup}
+        , filter{filter}
+        , m_State{State::INITIALIZING}
+        , m_SPI{spi0}
+        , m_DataQueue{output_queue}
     {
         if (!SPI.setRX(m_pins.MISO)){
             while(true){
@@ -100,16 +133,24 @@ public:
                 sleep_ms(1000);
             }
         }
-        // SPI.setTX(m_pins.MOSI);
-        // SPI.setSCK(m_pins.SCK);
+
         m_ads1220 = ADS1220();
+
+        // Fill both buffers with initial values
+        m_ReadingBuffer[0] = {0};
+        m_ReadingBuffer[1] = {0};
     }
 
-    ErrorCode begin()
-    {
+    ~ADS1220Pipeline() {
+        if (m_DMAChannel >= 0) {
+            dma_channel_unclaim(m_DMAChannel);
+        }
+    }
+
+    // Reset the ADS1220 and set up the configuration registers
+    ErrorCode setup(){
 
         m_ads1220.begin(m_pins.CS,m_pins.DRDY);
-
 
         if (!m_ads1220.isConnected())
         {
@@ -118,8 +159,7 @@ public:
                 Serial.printf("reg0 data: %x\n", m_ads1220.readRegister(CONFIG_REG0_ADDRESS));
                 Serial.printf("reg1 data: %x\n", m_ads1220.readRegister(CONFIG_REG1_ADDRESS));
                 Serial.printf("reg2 data: %x\n", m_ads1220.readRegister(CONFIG_REG2_ADDRESS));
-                Serial.printf("reg3 data: %x\n", m_ads1220.readRegister(CONFIG_REG3_ADDRESS));
-                
+                Serial.printf("reg3 data: %x\n", m_ads1220.readRegister(CONFIG_REG3_ADDRESS));  
                 Serial.flush();
                 sleep_ms(1000);
             }
@@ -131,11 +171,12 @@ public:
         m_ads1220.set_pga_gain(PGA_GAIN_1);
         m_ads1220.select_mux_channels(MUX_AIN2_AIN3);  // Configure for differential measurement between AIN2 and AIN3
         m_ads1220.set_conv_mode_continuous();          // Set continuous conversion mode
+        return ErrorCode::OK;
+    }
+
+    ErrorCode begin()
+    {
         m_ads1220.Start_Conv();  // Start continuous conversion mode
-
-        // Set interrupt handler to catch rdy
-        attachInterruptParam(digitalPinToInterrupt(m_pins.DRDY), drdyCallback, FALLING, this);
-
         return ErrorCode::OK;
     }
 
@@ -164,126 +205,146 @@ public:
     {
         return m_ads1220.isConnected();
     }
-    
 
+    bool setUpPipeline(){
+        // initializeDMA();
+        return true;
+    }
+
+    bool getReading(SensorReading& reading) {
+        // Atomically get current reading
+        uint32_t read_index = __atomic_load_n(&m_BufferCurrentIndex, __ATOMIC_ACQUIRE);
+        reading = m_ReadingBuffer[m_BufferCurrentIndex];
+        return true;
+    }
+
+    uint8_t getId() const { return m_ID; }
+    uint getDRDYPin() const { return m_pins.DRDY; }
+    uint getCSPin() const { return m_pins.CS; }
+    int getDMAChannel() const { return m_DMAChannel; }
+
+    void __isr handleDRDY() {
+        m_interruptStartTime_us = time_us_64();
+        gpio_put(Pins::ONBOARD_LED, true);
+        gpio_put(m_pins.CS, 0);  // Select sensor
+        sleep_us(1); // Wait for CS to settle
+
+        // Start DMA transfer
+        // dma_channel_start(m_DMAChannel);
+        spi_read_blocking(m_SPI, 0xFF , m_RawReadingArray, 3);
+        // m_RawReading = m_ads1220.Read_WaitForData();
+        // spi_write_blocking(m_SPI, nullptr, 3);  // Dummy write to clock out the data
+        gpio_put(m_pins.CS, 1);  // Deselect sensor
+        sleep_us(1); // Wait for CS to settle
+
+        handleDMAComplete();
+    }
+
+    uint8_t m_ID;
     ADS1220 m_ads1220;
+    const PinSetup m_pins;
 
 private:
-    static void drdyCallback(void* loadcell){
-        uint64_t start_time_us = time_us_64();
-        gpio_put(Pins::ONBOARD_LED, true);
-        LoadCellADS1220 *self = static_cast<LoadCellADS1220 *>(loadcell);
-        // self->m_lastRawCounts = self->m_ads1220.Read_Data_Samples();
-        self->m_lastRawCounts = self->m_ads1220.Read_WaitForData();
-        self->m_noOfReads++;
-        self->m_lastFilteredCounts = self->filter.step(self->m_lastRawCounts);
-        gpio_put(Pins::ONBOARD_LED, false);
-        self->m_lastInterruptDuration_us = time_us_64() - start_time_us;
-    }
 
-    PinSetup m_pins;
-    Filter& filter;
+    /* Pipeline Init Functions */
+    
+    // void initializeDMA() {
+    //     // Claim a free DMA channel
+    //     m_DMAChannel = dma_claim_unused_channel(false);
+    //     if (m_DMAChannel < 0) {
+    //         // Handle error - no free DMA channels
+    //         printf("Error: No free DMA channel for sensor %d\n", m_ID);
+    //         return;
+    //     }
 
-    int32_t m_lastRawCounts = 0;
-    double m_lastFilteredCounts = 0;
-    uint64_t m_noOfReads = 0;
-    uint64_t m_lastInterruptDuration_us = 0;
-};
+    //     // Configure DMA
+    //     m_DMAConfig = dma_channel_get_default_config(m_DMAChannel);
+    //     channel_config_set_transfer_data_size(&m_DMAConfig, DMA_SIZE_8);
+    //     channel_config_set_read_increment(&m_DMAConfig, false);
+    //     channel_config_set_write_increment(&m_DMAConfig, true);
+    //     channel_config_set_dreq(&m_DMAConfig, spi_get_dreq(m_SPI, false));
+    //     // dma_channel_configure(m_DMAChannel, &m_DMAConfig, false);
+    //     dma_channel_configure(
+    //         m_DMAChannel,
+    //         &m_DMAConfig,
+    //         &m_RawReadingFromDMA,   // dst
+    //         &spi_get_hw(m_SPI)->dr, // src
+    //         3,                      // 24 bits
+    //         false                   // don't start immediately
+    //     );
 
-class LoadcellADS1115 : public AnalogSensor
-{
-public:
-    LoadcellADS1115(TwoWire *wire, uint32_t ready_pin, Filter& filter) : m_readyPin(ready_pin), filter(filter)
-    {
-        m_ads1115 = ADS1115(0x48, wire);
-    }
+    //     // Enable DMA interrupt for this channel
+    //     dma_channel_set_irq0_enabled(m_DMAChannel, true);
+    // }
 
-    ErrorCode begin()
-    {
-        m_ads1115.begin();
-        if (!m_ads1115.isConnected())
-        {
-            Serial.println("ADS1115 not connected");
-            return ErrorCode::NOT_CONNECTED;
+    /* Pipeline Callbacks */
+    // static void drdyCallback(void* loadcell){
+    //     uint64_t start_time_us = time_us_64();
+    //     gpio_put(Pins::ONBOARD_LED, true);
+    //     ADS1220Pipeline *self = static_cast<ADS1220Pipeline *>(loadcell);
+    //     // self->m_lastRawCounts = self->m_ads1220.Read_Data_Samples();
+    //     self->m_lastRawCounts = self->m_ads1220.Read_WaitForData();
+    //     self->m_noOfReads++;
+    //     self->m_lastFilteredCounts = self->filter.step(self->m_lastRawCounts);
+    //     gpio_put(Pins::ONBOARD_LED, false);
+    //     self->m_lastInterruptDuration_us = time_us_64() - start_time_us;
+    // }
+
+    // DRDY pin interrupt handler
+
+
+    void __isr handleDMAComplete() {
+        // gpio_put(m_pins.CS, 1);  // Deselect sensor
+        int32_t result = 0;
+        result = m_RawReadingArray[0];
+        result = (result << 8) | m_RawReadingArray[1];
+        result = (result << 8) | m_RawReadingArray[2];
+
+        if (m_RawReadingArray[0] & (1<<7)) {
+            result |= 0xFF000000;
         }
 
-        // Set gain
-        m_ads1115.setGain(16);
-        m_ads1115.setDataRate(7);
+        // Process the reading
+        m_lastRawCounts = result;
+        float filtered_value = filter.step(m_lastRawCounts);
+        
+        m_noOfReads++;
+        m_lastFilteredCounts = filtered_value;
 
-        // Set the MSB of the Hi_thresh register to 1
-        m_ads1115.setComparatorThresholdHigh(0x8000);
-        // Set the MSB of the Lo_thresh register to 0
-        m_ads1115.setComparatorThresholdLow(0x0000);
-        // SET ALERT RDY PIN (QueConvert mode)
-        m_ads1115.setComparatorQueConvert(0);
-
-        // Continuous mode
-        m_ads1115.setMode(0);
-        // Trigger first read
-        m_ads1115.requestADC_Differential_0_1();
-
-        // Set interrupt handler to catch rdy
-        pinMode(m_readyPin, INPUT_PULLUP);
-        attachInterruptParam(digitalPinToInterrupt(m_readyPin), adsReadyCallback, RISING, this);
-
-        // trigger first read
-        m_ads1115.requestADC_Differential_0_1(); 
-        return ErrorCode::OK;
-    }
-
-    ErrorCode getLastRawCounts(uint32_t &counts)
-    {
-        counts = m_lastRawCounts;
-        return ErrorCode::OK;
-    }
-
-    double getLastFilteredCounts()
-    {
-        return m_lastFilteredCounts;
-    }
-
-    uint64_t getNumOfCounts()
-    {
-        return m_noOfReads;
-    }
-
-    uint64_t getLastInterruptDuration_us()
-    {
-        return m_lastInterruptDuration_us;
-    }
-
-    bool isConnected(){
-        return m_ads1115.isConnected();
-    }
-
-    ADS1115 m_ads1115;
-
-private:
-    // Catch interrupt and set flag
-    static void adsReadyCallback(void *loadcell)
-    {
-        uint64_t start_time_us = time_us_64();
-        gpio_put(Pins::ONBOARD_LED, true);
-        LoadcellADS1115 *this_p = static_cast<LoadcellADS1115 *>(loadcell);
-        this_p->m_isAdcReady = true;
-        this_p->m_lastRawCounts = this_p->m_ads1115.getValue();
-        this_p->m_noOfReads++;
+        SensorReading reading {
+            .reading = static_cast<float>(m_lastFilteredCounts),
+            .rawReading = m_lastRawCounts,
+            .timestamp = time_us_64(),
+            .reading_number = m_noOfReads,
+            .interruptDuration_us = static_cast<uint32_t>(time_us_64() - m_interruptStartTime_us)
+        };
+        // Write to inactive buffer
+        uint32_t write_index = 1 - __atomic_load_n(&m_BufferCurrentIndex, __ATOMIC_ACQUIRE);
+        m_ReadingBuffer[write_index] = reading;
+        
+        // Atomic swap to make new reading active
+        __atomic_store_n(&m_BufferCurrentIndex, write_index, __ATOMIC_RELEASE);
         gpio_put(Pins::ONBOARD_LED, false);
-        // Serial.printf("%llu\t", start_time_us);
-        // Serial.printf("%llu\t", this_p->m_lastInterruptDuration_us);
-        // Serial.printf("%ld\n", this_p->m_lastRawCounts);
-        this_p->m_lastFilteredCounts = this_p->filter.step(this_p->m_lastRawCounts);
-        this_p->m_lastInterruptDuration_us = time_us_64() - start_time_us;
-        return;
     }
 
-    const uint32_t m_readyPin;
+    Filter& filter;
     int32_t m_lastRawCounts = 0;
     double m_lastFilteredCounts = 0;
     uint64_t m_noOfReads = 0;
     uint64_t m_lastInterruptDuration_us = 0;
-    Filter& filter;
+    uint64_t m_interruptStartTime_us = 0;
 
-    bool m_isAdcReady;
+
+    volatile State m_State = State::INITIALIZING;
+    volatile uint32_t m_RawReading;
+    
+    //  Double buffer the sensor readings for safe inter-thread communication
+    SensorReading m_ReadingBuffer[2];
+    volatile uint32_t  m_BufferCurrentIndex = 0;
+
+    uint8_t m_RawReadingArray[3];
+    spi_inst_t* m_SPI = spi0;
+    dma_channel_config m_DMAConfig;
+    int m_DMAChannel = -1;
+    queue_t *const m_DataQueue;
 };

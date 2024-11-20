@@ -58,7 +58,6 @@ void ADS1220::writeRegister(uint8_t address, uint8_t value)
 uint8_t ADS1220::readRegister(uint8_t address)
 {
     uint8_t data;
-
     SPI.beginTransaction(SPI_SETTINGS);
     digitalWrite(m_cs_pin,LOW);
     delayMicroseconds(1);
@@ -89,7 +88,7 @@ void ADS1220::begin(uint8_t cs_pin, uint8_t drdy_pin)
     delayMicroseconds(50);
     
     // The device pulls nDRDY low after it is initialized
-    while (!WaitForData(1)){
+    while (!WaitForData(100)){
         // ads1220_Reset();
         // delayMicroseconds(50);
         Serial.println("Failed to wait for data");
@@ -372,7 +371,7 @@ int32_t ADS1220::Read_Data_Samples()
     bit24 = (bit24 << 8) | SPI_Buff[1];
     bit24 = (bit24 << 8) | SPI_Buff[2];                                 // Converting 3 bytes to a 24 bit int
 
-    bit24= ( bit24 << 8 );
+    bit24 = ( bit24 << 8 );
     mResult32 = ( bit24 >> 8 );                      // Converting 24 bit two's complement to 32 bit two's complement
 
     return mResult32;
