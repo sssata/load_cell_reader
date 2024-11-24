@@ -161,6 +161,7 @@ class ADS1220
 
             void SPI_Command(unsigned char data_in);
             void writeRegister(uint8_t address, uint8_t value);
+            // void writeRegisterMultiple(uint8_t address, uint8_t *valueArray, uint8_t arraySize);
             uint8_t readRegister(uint8_t address);
             uint8_t * Read_Data(void);
             int32_t Read_WaitForData();
@@ -169,6 +170,10 @@ class ADS1220
             int32_t DataToInt();
 
             uint8_t * get_config_reg(void);
+
+            void resetAllRegisters(bool write);
+            void setRegister(int registerNumber, uint8_t value);
+            void writeAllRegisters(void);
 
             // control register 0
             void select_mux_channels(int channels_conf);
@@ -183,14 +188,14 @@ class ADS1220
             void set_conv_mode_continuous(void);
             void TemperatureSensorMode_enable(void);    
             void TemperatureSensorMode_disable(void);   
-            void CurrentSources_ON(void);       
-            void CurrentSources_OFF(void);      
+            void CurrentSources_ON(void);
+            void CurrentSources_OFF(void);
             
             // control register 2
-            void set_VREF(int vref);             
-            void set_FIR_Filter(int filter);     
-            void LowSideSwitch_OPEN(void);       
-            void LowSideSwitch_CLOSED(void);        
+            void set_VREF(int vref);
+            void set_FIR_Filter(int filter);
+            void LowSideSwitch_OPEN(void);
+            void LowSideSwitch_CLOSED(void);
             void set_IDAC_Current(int IDACcurrent);  
             
             // control register 3

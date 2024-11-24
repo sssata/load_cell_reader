@@ -1,0 +1,58 @@
+Noise Analysis Report
+===================
+
+Results for 660 SPS:
+--------------------
+Standard Deviation: 3.135e+02 V
+Peak-to-Peak: 2.164e+03 V
+RMS Noise: 3.135e+02 V
+Kurtosis: 0.009
+Skewness: 0.004
+Dominant Noise Frequency: 32.81 Hz
+
+Noise Power in Frequency Bands:
+  0-1 Hz: 1.999e+03 V²
+  1-10 Hz: 1.799e+04 V²
+  10-100 Hz: 7.975e+04 V²
+
+Results for 600 SPS:
+--------------------
+Standard Deviation: 3.247e+02 V
+Peak-to-Peak: 2.244e+03 V
+RMS Noise: 3.247e+02 V
+Kurtosis: 0.013
+Skewness: 0.011
+Dominant Noise Frequency: 47.19 Hz
+
+Noise Power in Frequency Bands:
+  0-1 Hz: 1.110e+03 V²
+  1-10 Hz: 1.471e+04 V²
+  10-100 Hz: 8.873e+04 V²
+
+Results for 600 SPS, PGA OFF:
+-----------------------------
+Standard Deviation: 3.334e+02 V
+Peak-to-Peak: 2.389e+03 V
+RMS Noise: 3.334e+02 V
+Kurtosis: -0.045
+Skewness: 0.047
+Dominant Noise Frequency: 42.11 Hz
+
+Noise Power in Frequency Bands:
+  0-1 Hz: 3.198e+03 V²
+  1-10 Hz: 1.842e+04 V²
+  10-100 Hz: 9.095e+04 V²
+
+Results for 600 SPS, PGA OFF, holding cable:
+--------------------------------------------
+Standard Deviation: 6.175e+03 V
+Peak-to-Peak: 2.031e+04 V
+RMS Noise: 6.175e+03 V
+Kurtosis: -1.404
+Skewness: -0.092
+Dominant Noise Frequency: 39.33 Hz
+
+Noise Power in Frequency Bands:
+  0-1 Hz: 2.062e+04 V²
+  1-10 Hz: 1.539e+05 V²
+  10-100 Hz: 3.777e+07 V²

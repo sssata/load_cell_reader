@@ -6,7 +6,7 @@ import pathlib
 from typing import List
 import pandas as pd
 
-fs = 860  # max freq of ads1115
+fs = 660  # ADS1220 sample rate
 
 nyquist = fs / 2
 
@@ -106,7 +106,7 @@ filters = [
             numtaps = 20,
             cutoff = 50,
             pass_zero = "lowpass",
-            fs=fs
+            fs=fs,
         )
     ),
     DigitalFilter("EMA", [1 - alpha_ema], [1, -alpha_ema]),
@@ -124,7 +124,7 @@ for i, filt in enumerate(filters):
 plt.title("Bode Plot")
 plt.ylabel("Magnitude (dB)")
 plt.xlabel("Frequency (Hz)")
-plt.ylim(-80, 10)  # For magnitude range from -100 dB to 10 dB
+plt.ylim(-80, 10)  # For magnitude range from -80 dB to 10 dB
 plt.grid(True)
 plt.legend()
 

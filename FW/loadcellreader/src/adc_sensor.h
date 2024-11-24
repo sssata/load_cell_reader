@@ -27,51 +27,9 @@ enum class ErrorCode
     NOT_CONNECTED,
 };
 
-class AnalogSensor {
-public:
-    
-    /*
-    * @brief Initialize the sensor
-    * @return ErrorCode
-    */
-    virtual ErrorCode begin() = 0;
-
-    /*
-    * @brief Get the last raw counts from the sensor
-    * @param counts: uint32_t reference to store the counts
-    * @return ErrorCode
-    */
-    virtual ErrorCode getLastRawCounts(uint32_t &counts) = 0;
-
-
-    /*
-    * @brief Get the last filtered counts from the sensor
-    * @return double
-    */
-    virtual double getLastFilteredCounts() = 0;
-
-    /*
-    * @brief Get the number of reads from the sensor
-    * @return uint64_t
-    */
-    virtual uint64_t getNumOfCounts() = 0;
-
-    /*
-    * @brief Get the duration of the last interrupt in microseconds
-    * @return uint64_t
-    */
-    virtual uint64_t getLastInterruptDuration_us() = 0;
-
-    /*
-    * @brief Check if the sensor is connected
-    * @return bool
-    */
-    virtual bool isConnected() = 0;
-};
-
 using namespace ADS1220Driver;
 
-class ADS1220Pipeline : public AnalogSensor
+class ADS1220Pipeline
 {
 
 public:
@@ -82,9 +40,10 @@ public:
         WAITING_FOR_DRDY,
         READING_SPI,
         APPLYING_FILTER,
+        ERROR,
     };
 
-    struct PinSetup{
+    struct PinSetup {
         uint8_t MOSI;
         uint8_t MISO;
         uint8_t SCK;
@@ -95,9 +54,10 @@ public:
     struct SensorReading {
         float reading;
         int32_t rawReading;
-        uint64_t timestamp;
-        uint64_t reading_number;
+        uint64_t timestamp_us;
+        uint64_t readingNumber;
         uint32_t interruptDuration_us;
+        uint64_t lastValidReadingTimestamp_us;
     };
 
     /**
@@ -152,66 +112,33 @@ public:
 
         m_ads1220.begin(m_pins.CS,m_pins.DRDY);
 
-        if (!m_ads1220.isConnected())
-        {
-            while (true){
-                Serial.println("ADS1220 not connected");
-                Serial.printf("reg0 data: %x\n", m_ads1220.readRegister(CONFIG_REG0_ADDRESS));
-                Serial.printf("reg1 data: %x\n", m_ads1220.readRegister(CONFIG_REG1_ADDRESS));
-                Serial.printf("reg2 data: %x\n", m_ads1220.readRegister(CONFIG_REG2_ADDRESS));
-                Serial.printf("reg3 data: %x\n", m_ads1220.readRegister(CONFIG_REG3_ADDRESS));  
-                Serial.flush();
-                sleep_ms(1000);
-            }
-            return ErrorCode::NOT_CONNECTED;
-        }
-
         // Set gain
-        m_ads1220.set_data_rate(DR_600SPS);
-        m_ads1220.set_pga_gain(PGA_GAIN_1);
-        m_ads1220.select_mux_channels(MUX_AIN2_AIN3);  // Configure for differential measurement between AIN2 and AIN3
-        m_ads1220.set_conv_mode_continuous();          // Set continuous conversion mode
+        m_ads1220.resetAllRegisters(false);
+        m_ads1220.setRegister(0, MUX_AIN2_AIN3 | PGA_GAIN_1 | 0x00);  // Register 0: AIN2-AIN3, PGA Gain 1, PGA enabled
+        m_ads1220.setRegister(1, DR_330SPS | MODE_TURBO | 0b00000100);  // Register 1: 660 SPS Turbo Mode, Continuous conversion mode, Temp Sensor disabled, Current Source off
+        m_ads1220.setRegister(2, 0x00);  // Register 2: Vref internal, 50/60Hz rejection off, power switch open, IDAC off
+        m_ads1220.setRegister(3, 0x00);  // Register 3: IDAC1 disabled, IDAC2 disabled, DRDY pin only
+        m_ads1220.writeAllRegisters();
+
         return ErrorCode::OK;
     }
 
     ErrorCode begin()
-    {
+    {   
         m_ads1220.Start_Conv();  // Start continuous conversion mode
+        m_State = State::WAITING_FOR_DRDY;
         return ErrorCode::OK;
     }
 
-    ErrorCode getLastRawCounts(uint32_t &counts)
-    {
-        counts = m_lastRawCounts;
-        return ErrorCode::OK;
-    }
-
-    double getLastFilteredCounts()
-    {
-        return m_lastFilteredCounts;
-    }
-
-    uint64_t getNumOfCounts()
-    {
-        return m_noOfReads;
-    }
-
-    uint64_t getLastInterruptDuration_us()
-    {
-        return m_lastInterruptDuration_us;
-    }
-
-    bool isConnected()
-    {
-        return m_ads1220.isConnected();
-    }
-
-    bool setUpPipeline(){
-        // initializeDMA();
-        return true;
-    }
-
-    bool getReading(SensorReading& reading) {
+    /**
+     * @brief Get the Reading object
+     * Thread-safe function to get the latest reading from the sensor
+     * 
+     * @param reading 
+     * @return true 
+     * @return false 
+     */
+    bool getReading(SensorReading& reading) const {
         // Atomically get current reading
         uint32_t read_index = __atomic_load_n(&m_BufferCurrentIndex, __ATOMIC_ACQUIRE);
         reading = m_ReadingBuffer[m_BufferCurrentIndex];
@@ -226,18 +153,35 @@ public:
     void __isr handleDRDY() {
         m_interruptStartTime_us = time_us_64();
         gpio_put(Pins::ONBOARD_LED, true);
-        gpio_put(m_pins.CS, 0);  // Select sensor
-        sleep_us(1); // Wait for CS to settle
+        m_State = State::READING_SPI;
+        if (!readDataToRawDataArray()){
+            // enterErrorState();
+            return;
+        }
 
-        // Start DMA transfer
-        // dma_channel_start(m_DMAChannel);
-        spi_read_blocking(m_SPI, 0xFF , m_RawReadingArray, 3);
-        // m_RawReading = m_ads1220.Read_WaitForData();
-        // spi_write_blocking(m_SPI, nullptr, 3);  // Dummy write to clock out the data
-        gpio_put(m_pins.CS, 1);  // Deselect sensor
-        sleep_us(1); // Wait for CS to settle
+        if (!validateDataArray()){
+            // enterErrorState();
+            return;
+        }
 
-        handleDMAComplete();
+        rawDataArrayToCounts();
+
+        m_State = State::APPLYING_FILTER;
+        m_lastFilteredCounts = filter.step(m_lastRawCounts);
+        m_noOfReads++;
+        m_lastValidReadingTimestamp_us = m_interruptStartTime_us;
+
+        SensorReading reading {
+            .reading = static_cast<float>(m_lastFilteredCounts),
+            .rawReading = m_lastRawCounts,
+            .timestamp_us = m_interruptStartTime_us,
+            .readingNumber = m_noOfReads,
+            .interruptDuration_us = static_cast<uint32_t>(time_us_64() - m_interruptStartTime_us),
+            .lastValidReadingTimestamp_us = m_lastValidReadingTimestamp_us,
+        };
+        updateReadingBuffer(reading);
+        m_State = State::WAITING_FOR_DRDY;
+        gpio_put(Pins::ONBOARD_LED, false);
     }
 
     uint8_t m_ID;
@@ -246,93 +190,87 @@ public:
 
 private:
 
-    /* Pipeline Init Functions */
-    
-    // void initializeDMA() {
-    //     // Claim a free DMA channel
-    //     m_DMAChannel = dma_claim_unused_channel(false);
-    //     if (m_DMAChannel < 0) {
-    //         // Handle error - no free DMA channels
-    //         printf("Error: No free DMA channel for sensor %d\n", m_ID);
-    //         return;
-    //     }
+    inline bool readDataToRawDataArray(){
+        gpio_put(m_pins.CS, 0);  // Select sensor
+        sleep_us(1); // Wait for CS to settle
 
-    //     // Configure DMA
-    //     m_DMAConfig = dma_channel_get_default_config(m_DMAChannel);
-    //     channel_config_set_transfer_data_size(&m_DMAConfig, DMA_SIZE_8);
-    //     channel_config_set_read_increment(&m_DMAConfig, false);
-    //     channel_config_set_write_increment(&m_DMAConfig, true);
-    //     channel_config_set_dreq(&m_DMAConfig, spi_get_dreq(m_SPI, false));
-    //     // dma_channel_configure(m_DMAChannel, &m_DMAConfig, false);
-    //     dma_channel_configure(
-    //         m_DMAChannel,
-    //         &m_DMAConfig,
-    //         &m_RawReadingFromDMA,   // dst
-    //         &spi_get_hw(m_SPI)->dr, // src
-    //         3,                      // 24 bits
-    //         false                   // don't start immediately
-    //     );
+        int bytesRead = spi_read_blocking(m_SPI, 0xFF , m_RawDataArray, 3);
+        sleep_us(1);
+        gpio_put(m_pins.CS, 1);  // Deselect sensor
 
-    //     // Enable DMA interrupt for this channel
-    //     dma_channel_set_irq0_enabled(m_DMAChannel, true);
-    // }
+        if (bytesRead != 3){
+            // Serial.printf("Failed to read data from sensor, read %d bytes\n", bytesRead);
+            return false;
+        }
+        return true;
+    }
 
-    /* Pipeline Callbacks */
-    // static void drdyCallback(void* loadcell){
-    //     uint64_t start_time_us = time_us_64();
-    //     gpio_put(Pins::ONBOARD_LED, true);
-    //     ADS1220Pipeline *self = static_cast<ADS1220Pipeline *>(loadcell);
-    //     // self->m_lastRawCounts = self->m_ads1220.Read_Data_Samples();
-    //     self->m_lastRawCounts = self->m_ads1220.Read_WaitForData();
-    //     self->m_noOfReads++;
-    //     self->m_lastFilteredCounts = self->filter.step(self->m_lastRawCounts);
-    //     gpio_put(Pins::ONBOARD_LED, false);
-    //     self->m_lastInterruptDuration_us = time_us_64() - start_time_us;
-    // }
+    inline bool validateDataArray(){
+        // If all bits are 0 or 1, the data is invalid
+        if (m_RawDataArray[0] == 0xFF && m_RawDataArray[1] == 0xFF && m_RawDataArray[2] == 0xFF){
+            // Serial.println("All bits are 1");
+            return false;
+        }
+        if (m_RawDataArray[0] == 0x00 && m_RawDataArray[1] == 0x00 && m_RawDataArray[2] == 0x00){
+            // Serial.println("All bits are 0");
+            return false;
+        }
+        return true;
+    }
 
-    // DRDY pin interrupt handler
-
-
-    void __isr handleDMAComplete() {
-        // gpio_put(m_pins.CS, 1);  // Deselect sensor
+    inline void rawDataArrayToCounts(){
         int32_t result = 0;
-        result = m_RawReadingArray[0];
-        result = (result << 8) | m_RawReadingArray[1];
-        result = (result << 8) | m_RawReadingArray[2];
+        result = m_RawDataArray[0];
+        result = (result << 8) | m_RawDataArray[1];
+        result = (result << 8) | m_RawDataArray[2];
 
-        if (m_RawReadingArray[0] & (1<<7)) {
+        // If the most significant bit is set, the value is negative
+        if (m_RawDataArray[0] & (1<<7)) {
             result |= 0xFF000000;
         }
-
-        // Process the reading
         m_lastRawCounts = result;
-        float filtered_value = filter.step(m_lastRawCounts);
-        
-        m_noOfReads++;
-        m_lastFilteredCounts = filtered_value;
+    }
 
-        SensorReading reading {
-            .reading = static_cast<float>(m_lastFilteredCounts),
-            .rawReading = m_lastRawCounts,
-            .timestamp = time_us_64(),
-            .reading_number = m_noOfReads,
-            .interruptDuration_us = static_cast<uint32_t>(time_us_64() - m_interruptStartTime_us)
-        };
+    /**
+     * @brief Make the given reading safetly available to read from other threads with getReading()
+     * 
+     * @param reading 
+     */
+    inline void updateReadingBuffer(SensorReading& reading){
         // Write to inactive buffer
         uint32_t write_index = 1 - __atomic_load_n(&m_BufferCurrentIndex, __ATOMIC_ACQUIRE);
         m_ReadingBuffer[write_index] = reading;
         
         // Atomic swap to make new reading active
         __atomic_store_n(&m_BufferCurrentIndex, write_index, __ATOMIC_RELEASE);
-        gpio_put(Pins::ONBOARD_LED, false);
+    }
+
+    inline void printLastReading(){
+        SensorReading reading;
+        getReading(reading);
+        Serial.printf("%llu\t%ld\n", reading.timestamp_us, reading.rawReading);
+        Serial.flush();
+    }
+
+    void enterErrorState(){
+        SensorReading reading {
+            .reading = static_cast<float>(m_lastFilteredCounts),
+            .rawReading = m_lastRawCounts,
+            .timestamp_us = time_us_64(),
+            .readingNumber = m_noOfReads,
+            .interruptDuration_us = static_cast<uint32_t>(time_us_64() - m_interruptStartTime_us),
+            .lastValidReadingTimestamp_us = m_lastValidReadingTimestamp_us,
+        };
+        m_State = State::ERROR;
+        updateReadingBuffer(reading);
     }
 
     Filter& filter;
     int32_t m_lastRawCounts = 0;
     double m_lastFilteredCounts = 0;
     uint64_t m_noOfReads = 0;
-    uint64_t m_lastInterruptDuration_us = 0;
     uint64_t m_interruptStartTime_us = 0;
+    uint64_t m_lastValidReadingTimestamp_us = 0;
 
 
     volatile State m_State = State::INITIALIZING;
@@ -342,7 +280,7 @@ private:
     SensorReading m_ReadingBuffer[2];
     volatile uint32_t  m_BufferCurrentIndex = 0;
 
-    uint8_t m_RawReadingArray[3];
+    uint8_t m_RawDataArray[3];
     spi_inst_t* m_SPI = spi0;
     dma_channel_config m_DMAConfig;
     int m_DMAChannel = -1;

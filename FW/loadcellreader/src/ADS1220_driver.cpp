@@ -93,18 +93,9 @@ void ADS1220::begin(uint8_t cs_pin, uint8_t drdy_pin)
         // delayMicroseconds(50);
         Serial.println("Failed to wait for data");
         Serial.flush();
-        delay(1000);
+        delay(100);
     }
 
-    m_config_reg0 = 0x00;   //Default settings: AINP=AIN0, AINN=AIN1, Gain 1, PGA enabled
-    m_config_reg1 = 0x04;   //Default settings: DR=20 SPS, Mode=Normal, Conv mode=continuous, Temp Sensor disabled, Current Source off
-    m_config_reg2 = 0x10;   //Default settings: Vref internal, 50/60Hz rejection, power open, IDAC off
-    m_config_reg3 = 0x00;   //Default settings: IDAC1 disabled, IDAC2 disabled, DRDY pin only
-
-    writeRegister( CONFIG_REG0_ADDRESS , m_config_reg0);
-    writeRegister( CONFIG_REG1_ADDRESS , m_config_reg1);
-    writeRegister( CONFIG_REG2_ADDRESS , m_config_reg2);
-    writeRegister( CONFIG_REG3_ADDRESS , m_config_reg3);
 }
 
 void ADS1220::PrintRegisterValues(){
@@ -141,6 +132,56 @@ void ADS1220::ads1220_Reset()
 void ADS1220::Start_Conv()
 {
     SPI_Command(START);
+}
+
+void ADS1220::resetAllRegisters(bool write)
+{
+
+            m_config_reg0 = 0x00;
+            m_config_reg1 = 0x00;
+            m_config_reg2 = 0x00;
+            m_config_reg3 = 0x00;
+    if (write) {
+        writeAllRegisters();
+    }
+}
+
+void ADS1220::setRegister(int registerNumber, uint8_t value)
+{
+    switch (registerNumber)
+    {
+    case 0:
+        m_config_reg0 = value;
+        break;
+    case 1:
+        m_config_reg1 = value;
+        break;
+    case 2:
+        m_config_reg2 = value;
+        break;
+    case 3:
+        m_config_reg3 = value;
+        break;
+    default:
+        break;
+    }
+}
+
+void ADS1220::writeAllRegisters()
+{
+
+    SPI.beginTransaction(SPI_SETTINGS);
+    digitalWrite(m_cs_pin,LOW);
+    delayMicroseconds(1);
+    SPI.transfer(0b01000011); // Write 4 bytes starting from address 0
+    SPI.transfer(m_config_reg0);
+    SPI.transfer(m_config_reg1);
+    SPI.transfer(m_config_reg2);
+    SPI.transfer(m_config_reg3);
+    delayMicroseconds(1);
+    digitalWrite(m_cs_pin,HIGH);
+    SPI.endTransaction();
+
 }
 
 // control register 0

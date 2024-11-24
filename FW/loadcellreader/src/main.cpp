@@ -120,9 +120,6 @@ void setup()
 	ADCManager::getInstance().begin();
 
 	last_time_us = time_us_64();
-
-	sleep_ms(1000);
-
 	Serial.println("Setup complete");
 }
 
@@ -144,18 +141,19 @@ void loop()
 			ADS1220Pipeline::SensorReading reading = {0};
 
 			loadCell->getReading(reading);
-			if (reading.reading_number == 0)
+			if (reading.readingNumber == 0)
 			{
 				Serial.printf("No readings yet\n");
 				Serial.flush();
 				continue;
 			}
 
-			Serial.printf("%llu\t", reading.timestamp);
-			Serial.printf("%llu\t", reading.reading_number);
+			Serial.printf("%llu\t", reading.lastValidReadingTimestamp_us);
+			// Serial.printf("%llu\t", reading.readingNumber);
 			Serial.printf("%ld\t", reading.rawReading);
 			Serial.printf("%f\t", reading.reading);
 			Serial.printf("%lu\t", reading.interruptDuration_us);
+			// Serial.printf("%d\n", reading.lastValidReadingTimestamp_us);
 
 			// Serial.printf("%llu\n", loadCell->getNumOfCounts());
 			// Serial.printf("%f\n", loadCell->getLastFilteredCounts());
