@@ -35,7 +35,7 @@ ADS1220Pipeline::PinSetup pinSetup2 = {
 };
 
 queue_t *loadCell_queue = NULL;
-ADS1220Pipeline *loadCell[2];
+ADS1220Pipeline *loadCell[2] = {nullptr, nullptr};
 
 bool led_on = false;
 
@@ -81,6 +81,20 @@ void scan_i2c()
 		Serial.println("done\n");
 }
 
+void start_core1(void){
+	Serial.println("start_core1");
+	
+	ADCManager::getInstance().setup();
+	ADCManager::getInstance().begin();
+
+	Serial.println("Done start_core1");
+
+	while (1)
+	{
+		sleep_ms(1000);
+	}
+}
+
 void setup()
 {
 	// put your setup code here, to run once:
@@ -88,36 +102,24 @@ void setup()
 	Serial.begin(115200);
 	usb_service_setup(0x1234, 0x1234);
 
-	sleep_ms(3000);
-	Serial.println("Starting up");
+	sleep_ms(3);
+	Serial.println("Starting up1");
 
 	// Set up LED
 	gpio_init(Pins::ONBOARD_LED);
 	gpio_set_dir(Pins::ONBOARD_LED, GPIO_OUT);
 
-	// Set up pins
-	// Wire.setSDA(Pins::ADS1115_SDA);
-	// Wire.setSCL(Pins::ADS1115_SCL);
-	// Wire.setClock(1'000'000);
-	// Wire.begin();
-
-	// Start ADS1115
-	queue_init(loadCell_queue, sizeof(ADS1220Pipeline::SensorReading), 5);
-	if (!loadCell_queue)
-	{
-		Serial.println("Queue not created");
-	}
-
-	loadCell[0] = new ADS1220Pipeline{0, pinSetup, iirFilter, loadCell_queue};
-	loadCell[1] = new ADS1220Pipeline{1, pinSetup2, iirFilter2, loadCell_queue};
+	loadCell[0] = new ADS1220Pipeline{0, pinSetup, iirFilter};
+	loadCell[1] = new ADS1220Pipeline{1, pinSetup2, iirFilter2};
 
 	for (auto adspipeline : loadCell)
 	{
 		ADCManager::getInstance().addADCPipeline(adspipeline);
 	}
 
-	ADCManager::getInstance().setup();
-	ADCManager::getInstance().begin();
+	multicore_launch_core1(start_core1);
+
+	sleep_ms(100); // Wait for core1 to start
 
 	last_time_us = time_us_64();
 	Serial.println("Setup complete");
@@ -139,6 +141,12 @@ void loop()
 		for (auto loadCell : loadCell)
 		{
 			ADS1220Pipeline::SensorReading reading = {0};
+
+			if (loadCell == nullptr)
+			{
+				Serial.printf("Not initalized yet\n");
+				continue;
+			}
 
 			loadCell->getReading(reading);
 			if (reading.readingNumber == 0)

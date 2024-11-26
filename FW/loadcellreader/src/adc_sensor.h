@@ -10,7 +10,6 @@
 #include "hardware/dma.h"
 #include "hardware/irq.h"
 #include "hardware/spi.h"
-#include "pico/util/queue.h"
 
 // Arduino
 #include "Wire.h"
@@ -67,13 +66,12 @@ public:
      * @param filter the filter to apply to the sensor readings
      * @param output_queue the output queue to store the sensor readings
      */
-    ADS1220Pipeline(uint8_t ID, PinSetup pinSetup, Filter& filter, queue_t* output_queue) 
+    ADS1220Pipeline(uint8_t ID, PinSetup pinSetup, Filter& filter) 
         : m_ID{ID}
         , m_pins{pinSetup}
         , filter{filter}
         , m_State{State::INITIALIZING}
         , m_SPI{spi0}
-        , m_DataQueue{output_queue}
     {
         if (!SPI.setRX(m_pins.MISO)){
             while(true){
@@ -284,5 +282,4 @@ private:
     spi_inst_t* m_SPI = spi0;
     dma_channel_config m_DMAConfig;
     int m_DMAChannel = -1;
-    queue_t *const m_DataQueue;
 };
